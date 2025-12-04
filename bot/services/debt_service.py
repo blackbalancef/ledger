@@ -166,32 +166,23 @@ class DebtService:
         # Import here to avoid circular dependency
         from bot.services.transaction_service import TransactionService
         
-        # Determine transaction direction
-        # If debtor is settling, they pay (negative amount for them)
-        # If creditor is settling, they receive (positive amount)
-        is_debtor = debt.debtor_user_id == user.id
-
-        if is_debtor:
-            # Debtor pays - this is an expense for debtor
-            transaction_type = TransactionTypeEnum.EXPENSE
-            settlement_user = user
-        else:
-            # Creditor receives - this is income for creditor
-            transaction_type = TransactionTypeEnum.INCOME
-            settlement_user = user
+        # Use SETTLEMENT type - debt settlements don't count as income/expense
+        # because the net effect is zero (just recovering money already owed)
+        settlement_user = user
 
         # Create settlement transaction
         settlement = await TransactionService.create_transaction(
             user=settlement_user,
             amount=float(debt.amount),
             currency=debt.currency,
-            transaction_type=transaction_type,
+            transaction_type=TransactionTypeEnum.SETTLEMENT,
             category_id=debt.category_id,
             note=f"Settlement of debt {debt_id}",
             session=session,
         )
-
-        # Update debt as settled
+        
+        # Link settlement to debt and update debt as settled
+        settlement.related_debt_id = debt_id
         debt.is_settled = True
         await session.commit()
 
@@ -284,4 +275,179 @@ class DebtService:
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    @staticmethod
+    async def calculate_net_debts(
+        user1: User,
+        user2: User,
+        session: AsyncSession,
+        base_currency: str = "EUR",
+    ) -> Dict:
+        """
+        Calculate net debt between two users, converting all amounts to base currency.
+
+        Args:
+            user1: First user (from perspective of this user)
+            user2: Second user
+            session: Database session
+            base_currency: Currency to use for calculation ("EUR" or "USD")
+
+        Returns:
+            Dictionary with:
+            - net_amount: Net amount (positive if user1 owes user2, negative if user2 owes user1)
+            - net_amount_decimal: Net amount as Decimal
+            - debts_to_cancel: List of debts between the two users
+            - breakdown: Detailed breakdown of calculation
+        """
+        # Get all unsettled debts between the two users
+        stmt = (
+            select(Debt)
+            .options(
+                joinedload(Debt.creditor),
+                joinedload(Debt.debtor),
+                joinedload(Debt.category),
+            )
+            .where(
+                Debt.is_settled == False,
+                or_(
+                    and_(
+                        Debt.creditor_user_id == user1.id,
+                        Debt.debtor_user_id == user2.id,
+                    ),
+                    and_(
+                        Debt.creditor_user_id == user2.id,
+                        Debt.debtor_user_id == user1.id,
+                    ),
+                ),
+            )
+            .order_by(Debt.created_at)
+        )
+        result = await session.execute(stmt)
+        debts = result.scalars().unique().all()
+
+        if not debts:
+            return {
+                "net_amount": 0.0,
+                "net_amount_decimal": Decimal("0"),
+                "debts_to_cancel": [],
+                "breakdown": [],
+            }
+
+        # Calculate net amount in base currency
+        total_user1_owes = Decimal("0")  # user1 owes user2
+        total_user2_owes = Decimal("0")  # user2 owes user1
+
+        breakdown = []
+
+        for debt in debts:
+            # Get amount in base currency
+            if base_currency == "EUR":
+                amount_base = debt.amount_eur
+            else:  # USD
+                amount_base = debt.amount_usd
+
+            if debt.creditor_user_id == user1.id and debt.debtor_user_id == user2.id:
+                # user2 owes user1
+                total_user2_owes += amount_base
+                breakdown.append({
+                    "debt": debt,
+                    "direction": "user2_owes_user1",
+                    "amount_base": amount_base,
+                    "amount_original": float(debt.amount),
+                    "currency": debt.currency,
+                })
+            elif debt.creditor_user_id == user2.id and debt.debtor_user_id == user1.id:
+                # user1 owes user2
+                total_user1_owes += amount_base
+                breakdown.append({
+                    "debt": debt,
+                    "direction": "user1_owes_user2",
+                    "amount_base": amount_base,
+                    "amount_original": float(debt.amount),
+                    "currency": debt.currency,
+                })
+
+        # Net: positive means user1 owes user2, negative means user2 owes user1
+        net_amount_decimal = total_user1_owes - total_user2_owes
+        net_amount = float(net_amount_decimal)
+
+        return {
+            "net_amount": net_amount,
+            "net_amount_decimal": net_amount_decimal,
+            "debts_to_cancel": list(debts),
+            "breakdown": breakdown,
+            "total_user1_owes": float(total_user1_owes),
+            "total_user2_owes": float(total_user2_owes),
+        }
+
+    @staticmethod
+    async def cancel_mutual_debts(
+        user1: User,
+        user2: User,
+        base_currency: str,
+        session: AsyncSession,
+    ) -> Dict:
+        """
+        Cancel out mutual debts between two users and create a net debt.
+
+        Args:
+            user1: First user (initiator)
+            user2: Second user
+            base_currency: Currency used for calculation ("EUR" or "USD")
+            session: Database session
+
+        Returns:
+            Dictionary with:
+            - cancelled_debts: List of debt IDs that were cancelled
+            - net_debt: New net debt created (or None if net is 0)
+        """
+        # Calculate net debts
+        calculation = await DebtService.calculate_net_debts(user1, user2, session, base_currency)
+
+        cancelled_debt_ids = []
+        net_debt = None
+
+        # Mark all mutual debts as settled
+        for debt in calculation["debts_to_cancel"]:
+            debt.is_settled = True
+            cancelled_debt_ids.append(debt.id)
+
+        # If net amount is not zero, create a new net debt
+        if abs(calculation["net_amount_decimal"]) > Decimal("0.01"):  # Threshold to avoid rounding issues
+            if calculation["net_amount"] > 0:
+                # user1 owes user2
+                creditor = user2
+                debtor = user1
+                net_amount = calculation["net_amount"]
+            else:
+                # user2 owes user1
+                creditor = user1
+                debtor = user2
+                net_amount = abs(calculation["net_amount"])
+
+            # Create net debt in base currency
+            net_debt = await DebtService.create_debt(
+                creditor=creditor,
+                debtor=debtor,
+                amount=net_amount,
+                currency=base_currency,
+                category_id=None,  # No category for net debt
+                note=f"Net debt after cancelling {len(cancelled_debt_ids)} mutual debt(s)",
+                related_transaction_id=None,
+                session=session,
+            )
+
+        await session.commit()
+
+        logger.info(
+            f"Cancelled {len(cancelled_debt_ids)} mutual debts between "
+            f"user1={user1.telegram_id} and user2={user2.telegram_id}, "
+            f"net_amount={calculation['net_amount']:.2f} {base_currency}"
+        )
+
+        return {
+            "cancelled_debts": cancelled_debt_ids,
+            "net_debt": net_debt,
+            "calculation": calculation,
+        }
 

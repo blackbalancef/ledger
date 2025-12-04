@@ -19,6 +19,7 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="undo", description="Undo last transaction"),
         BotCommand(command="categories", description="Manage categories"),
         BotCommand(command="split", description="Split a bill with someone"),
+        BotCommand(command="debt", description="Create a debt with someone"),
         BotCommand(command="debts", description="View debts and who owes whom"),
         BotCommand(command="settle", description="Mark a debt as settled"),
     ]

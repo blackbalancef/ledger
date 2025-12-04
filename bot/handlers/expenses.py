@@ -10,7 +10,7 @@ from loguru import logger
 
 from bot.services.user_service import UserService
 from bot.services.transaction_service import TransactionService
-from bot.states import AddExpense, SplitBill
+from bot.states import AddExpense, SplitBill, CreateDebt
 from bot.keyboards import currency_keyboard, category_keyboard, skip_note_keyboard, transaction_confirmation_keyboard
 from models.categories import TransactionType
 from models.transactions import TransactionTypeEnum
@@ -25,6 +25,10 @@ router = Router()
     ~StateFilter(SplitBill.waiting_custom_currency),
     ~StateFilter(SplitBill.waiting_custom_amount),
     ~StateFilter(SplitBill.waiting_other_user),
+    ~StateFilter(CreateDebt.waiting_amount),
+    ~StateFilter(CreateDebt.waiting_custom_currency),
+    ~StateFilter(CreateDebt.waiting_direction),
+    ~StateFilter(CreateDebt.waiting_other_user),
     F.text.regexp(r"^\d+(\.\d{1,2})?$")
 )
 async def handle_amount(message: Message, state: FSMContext, session: AsyncSession):

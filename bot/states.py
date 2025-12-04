@@ -69,3 +69,19 @@ class SettleDebt(StatesGroup):
     """States for settling a debt."""
     selecting_debt = State()
 
+
+class NetDebtCancellation(StatesGroup):
+    """States for net debt cancellation."""
+    confirming = State()
+
+
+class CreateDebt(StatesGroup):
+    """States for creating a debt."""
+    waiting_amount = State()
+    waiting_currency = State()
+    waiting_custom_currency = State()
+    waiting_category = State()
+    waiting_direction = State()
+    waiting_other_user = State()
+    waiting_note = State()
+

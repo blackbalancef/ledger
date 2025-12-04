@@ -13,7 +13,7 @@ from core.config import settings
 from core.db import close_db
 from core.fx_rates import fx_service
 from bot.middlewares import DbSessionMiddleware
-from bot.handlers import start, expenses, income, reports, history, categories, split_bill, debts
+from bot.handlers import start, expenses, income, reports, history, categories, split_bill, debts, create_debt
 from bot.utils import set_bot_commands
 from bot.tasks.backup_tasks import start_backup_scheduler, stop_backup_scheduler
 
@@ -43,6 +43,7 @@ async def main():
     dp.include_router(categories.router)
     dp.include_router(split_bill.router)
     dp.include_router(debts.router)
+    dp.include_router(create_debt.router)
 
     # Register bot commands
     await set_bot_commands(bot)
