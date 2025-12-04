@@ -9,6 +9,7 @@ class AddExpense(StatesGroup):
     waiting_custom_currency = State()
     waiting_category = State()
     waiting_note = State()
+    waiting_date = State()
 
 
 class AddIncome(StatesGroup):
@@ -24,6 +25,12 @@ class ReportCurrency(StatesGroup):
     """States for selecting report display currency."""
     waiting_currency = State()
     waiting_custom_currency = State()
+
+
+class ReportDateRange(StatesGroup):
+    """States for selecting report date range."""
+    waiting_single_date = State()
+    waiting_date_range = State()
 
 
 class AddCategory(StatesGroup):

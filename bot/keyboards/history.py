@@ -55,3 +55,15 @@ def transaction_confirmation_keyboard(transaction_id: str) -> InlineKeyboardMark
         [InlineKeyboardButton(text="❌ Cancel", callback_data=f"undo:{transaction_id}")]
     ])
 
+
+def date_input_keyboard() -> InlineKeyboardMarkup:
+    """
+    Create keyboard with "Use today" button for date input.
+
+    Returns:
+        InlineKeyboardMarkup
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Use today", callback_data="use_today")]
+    ])
+

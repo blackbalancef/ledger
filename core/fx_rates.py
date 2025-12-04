@@ -207,7 +207,7 @@ class FxRateService:
         return None
 
     async def get_rates_for_transaction(
-        self, currency: str, session: AsyncSession
+        self, currency: str, session: AsyncSession, target_date: Optional[date] = None
     ) -> Dict[str, Decimal]:
         """
         Get EUR and USD rates for a transaction.
@@ -215,12 +215,13 @@ class FxRateService:
         Args:
             currency: Transaction currency
             session: Database session
+            target_date: Date for the rates (default: today)
 
         Returns:
             Dict with 'eur' and 'usd' rates
         """
-        eur_rate = await self.get_rate(currency, "EUR", session)
-        usd_rate = await self.get_rate(currency, "USD", session)
+        eur_rate = await self.get_rate(currency, "EUR", session, target_date=target_date)
+        usd_rate = await self.get_rate(currency, "USD", session, target_date=target_date)
 
         return {
             "eur": eur_rate,
